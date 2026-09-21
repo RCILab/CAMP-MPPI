@@ -1,0 +1,943 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>CAMP-MPPI: Contact-Aware Manifold Projection MPPI</title>
+  <meta name="description" content="CAMP-MPPI enforces contact-manifold consistency, kinematic inequalities, and hard dynamics-level contact-wrench constraints inside every MPPI rollout." />
+  <meta name="robots" content="noindex" />
+  <meta name="citation_title" content="CAMP-MPPI: Contact-Aware Manifold Projection MPPI for Hard Dynamics-Level Contact-Wrench Constraints" />
+  <meta name="citation_author" content="Anonymous Authors" />
+  <meta name="citation_conference_title" content="IEEE International Conference on Robotics and Automation (ICRA)" />
+  <meta name="citation_pdf_url" content="static/pdfs/paper.pdf" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpolygon points='16,2 28,9 28,23 16,30 4,23 4,9' fill='%23bc8fdd' stroke='%233d2566' stroke-width='2.5'/%3E%3C/svg%3E" />
+
+  <!--
+    CAMP-MPPI project page. Single self-contained file: no external CSS, JS or fonts.
+
+    Assets used (all paths relative to this file):
+      static/pdfs/paper.pdf                      paper (author metadata stripped)
+      static/videos/teaser.mp4                   submission video  <- add this file
+      static/videos/hero_bg.mp4                  hero background loop (muted)
+      static/images/poster_hero.jpg              hero background poster
+      static/images/poster_teaser.jpg            teaser poster
+      static/images/tray_snapshot_*.jpg          Fig. 5 motion snapshots
+      static/images/fig2_pipeline.png            Fig. 2
+      static/images/fig4_force.png               Fig. 4
+      static/images/fig6_constraints.png         Fig. 6
+      static/images/writing_result_*.jpg         written traces (Fig. 3 bottom row)
+      static/images/tray_fail_*.jpg              tray failure snapshots
+      static/videos/writing_*.mp4, tray_*.mp4, sim_tray_*.mp4 and matching poster_*.jpg
+  -->
+
+  <style>
+    :root {
+      --paper: #ffffff;
+      --band: #f3f4f7;
+      --ink: #1a1d23;
+      --muted: #596170;
+      --rule: #dde0e6;
+      --wrench: #4f9a43;
+      --wrench-fill: #e3f2d9;
+      --kin: #2f5fb0;
+      --kin-fill: #d9e8fa;
+      --adm: #7a4bc4;
+      --adm-deep: #3d2566;
+      --adm-fill: #bc8fdd;
+      --adm-tint: #f3edfb;
+      --raw: #9aa0aa;
+      --fail: #b8372f;
+      --sans: "Inter", "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --math: "STIX Two Math", "Cambria Math", "Latin Modern Math", "STIX Two Text", "Times New Roman", serif;
+      --max: 1160px;
+      --text: 700px;
+      --gut: clamp(20px, 4vw, 40px);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 72px; -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 17px;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+      font-feature-settings: "ss01", "cv11";
+    }
+    img, video { display: block; max-width: 100%; height: auto; }
+    a { color: var(--adm); text-underline-offset: 3px; }
+    a:hover { color: var(--adm-deep); }
+    :focus-visible { outline: 3px solid var(--adm); outline-offset: 3px; border-radius: 2px; }
+    math { font-family: var(--math); font-size: 1.18em; }
+    ::selection { background: #e2d4f6; }
+
+    .wrap { width: min(100% - 2 * var(--gut), var(--max)); margin-inline: auto; }
+    .text { max-width: var(--text); }
+    .sec { padding-block: clamp(56px, 8vw, 96px); }
+    .sec--band { background: var(--band); }
+    .sec--tight { padding-top: 0; }
+
+    h1, h2, h3 { margin: 0; line-height: 1.15; }
+    h2 { font-size: clamp(1.6rem, 3vw, 2.3rem); font-weight: 700; letter-spacing: -0.022em; max-width: 32ch; text-wrap: balance; }
+    h3 { font-size: 1.12rem; font-weight: 650; letter-spacing: -0.01em; }
+    p { margin: 0 0 1em; }
+    .standfirst { margin-top: 16px; color: var(--muted); font-size: 1.08rem; max-width: 62ch; }
+    .note { color: var(--muted); font-size: .9rem; }
+
+    /* ---------- top bar ---------- */
+    .bar {
+      position: sticky; top: 0; z-index: 20;
+      padding-top: env(safe-area-inset-top, 0px);
+      background: rgba(255,255,255,.92);
+      backdrop-filter: saturate(1.4) blur(10px);
+      -webkit-backdrop-filter: saturate(1.4) blur(10px);
+      border-bottom: 1px solid var(--rule);
+    }
+    .bar-in { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 56px; }
+    .mark { display: inline-flex; align-items: center; gap: 9px; color: var(--ink); text-decoration: none; font-weight: 750; letter-spacing: -0.01em; }
+    .mark svg { width: 18px; height: 18px; }
+    .nav { display: flex; gap: 22px; }
+    .nav a { color: var(--muted); text-decoration: none; font-size: .9rem; font-weight: 500; }
+    .nav a:hover { color: var(--ink); }
+
+    /* ---------- hero ---------- */
+    .hero {
+      position: relative; isolation: isolate; overflow: hidden;
+      display: flex; align-items: center;
+      min-height: clamp(560px, 84vh, 880px);
+      padding-block: clamp(64px, 9vw, 120px);
+      background: #121519; color: #fff;
+    }
+    .hero-bg { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; object-fit: cover; object-position: 36% 50%; }
+    .hero-shade {
+      position: absolute; inset: 0; z-index: -1;
+      background:
+        linear-gradient(90deg, rgba(14,16,20,0) 22%, rgba(14,16,20,.55) 44%, rgba(14,16,20,.86) 62%, rgba(14,16,20,.92) 100%),
+        linear-gradient(0deg, rgba(14,16,20,.45) 0%, rgba(14,16,20,0) 30%);
+    }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); width: min(100% - 2 * var(--gut), var(--max)); }
+    .hero-copy { grid-column: 2; }
+    .hero h1 { font-size: clamp(3rem, 5.6vw, 4.8rem); font-weight: 800; letter-spacing: -0.045em; line-height: .95; color: #fff; }
+    .hero .full { display: block; margin-top: 18px; font-size: clamp(1.15rem, 1.9vw, 1.5rem); font-weight: 560; letter-spacing: -0.018em; line-height: 1.25; color: #eceef2; max-width: 30ch; }
+    .hero .byline { color: #bfc5cf; }
+    .hero .lead { color: #dfe3ea; }
+    .hero .btn { border-color: rgba(255,255,255,.85); color: #fff; }
+    .hero .btn:hover { background: rgba(255,255,255,.12); color: #fff; }
+    .hero .btn--primary { background: #fff; border-color: #fff; color: var(--ink); }
+    .hero .btn--primary:hover { background: #ece6f7; color: var(--ink); }
+    .hero .btn[aria-disabled="true"] { border-color: rgba(255,255,255,.28); color: rgba(255,255,255,.55); background: transparent; }
+    .hero :focus-visible { outline-color: #fff; }
+    .bg-toggle {
+      position: absolute; right: var(--gut); bottom: 18px;
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 11px; border-radius: 999px;
+      background: rgba(10,12,16,.5); color: #fff; border: 1px solid rgba(255,255,255,.35);
+      font: 500 .78rem/1 var(--sans); cursor: pointer;
+    }
+    .bg-toggle[hidden] { display: none; }
+    .bg-toggle:hover { background: rgba(10,12,16,.72); }
+    .bg-toggle svg { width: 12px; height: 12px; }
+    .bg-toggle .i-play { display: none; }
+    .bg-toggle[aria-pressed="true"] .i-play { display: block; }
+    .bg-toggle[aria-pressed="true"] .i-pause { display: none; }
+
+    .idea { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .92fr); gap: clamp(28px, 5vw, 72px); align-items: center; }
+    .byline { margin: 22px 0 0; color: var(--muted); font-size: .98rem; }
+    .lead { margin: 22px 0 0; font-size: 1.14rem; line-height: 1.6; max-width: 46ch; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 30px; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 16px; border-radius: 8px;
+      border: 1.5px solid var(--ink); color: var(--ink);
+      font: 600 .95rem/1 var(--sans); text-decoration: none; background: transparent; cursor: pointer;
+    }
+    .btn:hover { background: var(--band); color: var(--ink); }
+    .btn--primary { background: var(--ink); color: #fff; }
+    .btn--primary:hover { background: #333842; color: #fff; }
+    .btn[aria-disabled="true"] { border-color: var(--rule); color: #8b919c; cursor: default; background: transparent; }
+    .btn svg { width: 16px; height: 16px; flex: none; }
+
+    .idea-figure { margin: 0; }
+    .idea-fig { width: 100%; height: auto; overflow: visible; }
+    .set-w { fill: var(--wrench-fill); stroke: var(--wrench); stroke-width: 2.2; stroke-linejoin: round; }
+    .set-k { fill: var(--kin-fill); fill-opacity: .82; stroke: var(--kin); stroke-width: 2.2; stroke-linejoin: round; }
+    .set-a { fill: var(--adm-fill); stroke: var(--adm-deep); stroke-width: 2; stroke-linejoin: round; }
+    .lbl { font: 600 12.5px/1 var(--sans); letter-spacing: .01em; }
+    .lbl-w { fill: #3c7a33; }
+    .lbl-k { fill: var(--kin); }
+    .lbl-a { font: italic 700 26px/1 var(--math); fill: var(--adm-deep); }
+    .metric { fill: none; stroke: var(--adm-deep); stroke-width: 1.3; stroke-dasharray: 3 3.5; opacity: .75; }
+    .ghost { fill: #fff; stroke: var(--raw); stroke-width: 1.4; }
+    .pl { stroke: #7c8390; stroke-width: 1.2; opacity: .75; stroke-dasharray: 1; stroke-dashoffset: 0; }
+    .dot { fill: var(--adm-deep); stroke: #fff; stroke-width: 1.2; transform: translate(var(--dx), var(--dy)); }
+    .exec-ring { fill: #fff; stroke: var(--ink); stroke-width: 2.6; }
+    .exec-core { fill: var(--ink); }
+    .smp.hi .ghost { stroke: var(--adm-deep); }
+    .smp.hi .pl { stroke: var(--adm-deep); opacity: 1; stroke-width: 1.5; }
+
+    /* one orchestrated moment: samples land on the admissible set, then the executed command appears */
+    .idea-fig.play .dot { animation: land .75s cubic-bezier(.2,.75,.25,1) both; animation-delay: calc(.85s + var(--i) * 28ms); }
+    .idea-fig.play .smp.in .dot { animation-name: settle; }
+    .idea-fig.play .pl { animation: draw .75s cubic-bezier(.2,.75,.25,1) both; animation-delay: calc(.85s + var(--i) * 28ms); }
+    .idea-fig.play .ghost { animation: fadein .3s ease-out both; animation-delay: calc(.85s + var(--i) * 28ms); }
+    .idea-fig.play .metric { animation: fadein .5s ease-out .45s both; }
+    .idea-fig.play .exec { animation: pop .5s cubic-bezier(.3,1.5,.5,1) 2.05s both; transform-box: fill-box; transform-origin: center; }
+    @keyframes land { from { transform: translate(0, 0); fill: var(--raw); } to { transform: translate(var(--dx), var(--dy)); fill: var(--adm-deep); } }
+    @keyframes settle { from { fill: var(--raw); } to { fill: var(--adm-deep); } }
+    @keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+    @keyframes fadein { from { opacity: 0; } }
+    @keyframes pop { from { opacity: 0; transform: scale(.3); } }
+
+    .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 14px 0 0; padding: 0; list-style: none; font-size: .84rem; color: var(--muted); }
+    .legend li { display: inline-flex; align-items: center; gap: 7px; }
+    .sw { width: 14px; height: 14px; border-radius: 3px; flex: none; }
+    .sw--w { background: var(--wrench-fill); border: 2px solid var(--wrench); }
+    .sw--k { background: var(--kin-fill); border: 2px solid var(--kin); }
+    .sw--a { background: var(--adm-fill); border: 2px solid var(--adm-deep); }
+    .sw--dot { width: 10px; height: 10px; border-radius: 50%; }
+    .sw--raw { background: #fff; border: 1.5px solid var(--raw); }
+    .sw--proj { background: var(--adm-deep); }
+    .sw--exec { width: 13px; height: 13px; border-radius: 50%; background: radial-gradient(circle, var(--ink) 0 28%, #fff 30% 55%, var(--ink) 57%); }
+    .fig-cap { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-top: 10px; font-size: .88rem; color: var(--muted); }
+    .linkbtn { border: 0; background: none; padding: 0; font: 600 .86rem var(--sans); color: var(--adm); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+
+    /* ---------- video ---------- */
+    .player { position: relative; aspect-ratio: 16 / 9; background: #14161a; border-radius: 10px; overflow: hidden; }
+    .player video { width: 100%; height: 100%; object-fit: contain; background: #14161a; }
+    .player-msg {
+      position: absolute; left: 16px; top: 16px; margin: 0;
+      padding: 8px 12px; border-radius: 6px;
+      background: rgba(20,22,26,.78); color: #eef0f3; font-size: .9rem;
+    }
+    .player-msg[hidden] { display: none; }
+
+    /* ---------- abstract ---------- */
+    .abstract p { font-size: 1.06rem; line-height: 1.75; color: #2b3038; }
+
+    /* ---------- problem ---------- */
+    .claim { margin-top: 12px; }
+    .tasks { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(28px, 4vw, 48px); margin-top: 44px; }
+    .task h3 { margin-bottom: 6px; }
+    .task > p { color: var(--muted); font-size: .98rem; max-width: 48ch; }
+    .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+    .pair figure { margin: 0; }
+    .pair img { width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 8px; }
+    .pair figcaption { margin-top: 8px; font-size: .86rem; line-height: 1.45; color: var(--muted); }
+    .pair figcaption b { display: block; color: var(--ink); font-weight: 650; }
+
+    /* ---------- method ---------- */
+    .pipeline { margin: 40px 0 0; }
+    .pipeline img { width: 100%; border: 1px solid var(--rule); border-radius: 10px; background: #fff; }
+    figcaption.cap { margin-top: 10px; font-size: .88rem; line-height: 1.5; color: var(--muted); max-width: 90ch; }
+    figcaption.cap b { color: var(--ink); margin-right: 6px; }
+
+    .steps { list-style: none; margin: 48px 0 0; padding: 0; display: grid; gap: 0; counter-reset: step; }
+    .step { display: grid; grid-template-columns: 56px minmax(0, 1fr) minmax(0, 1.05fr); gap: 12px 32px; padding: 28px 0; border-top: 1px solid var(--rule); counter-increment: step; }
+    .step:last-child { border-bottom: 1px solid var(--rule); }
+    .step::before {
+      content: counter(step);
+      display: grid; place-items: center; width: 36px; height: 36px;
+      border-radius: 50%; background: var(--adm-deep); color: #fff; font-weight: 700; font-size: .95rem;
+    }
+    .step h3 { margin-bottom: 8px; }
+    .step p { color: var(--muted); font-size: .98rem; margin: 0; }
+    .eq { overflow-x: auto; padding: 16px 18px; border-radius: 8px; background: #fff; border: 1px solid var(--rule); align-self: start; }
+    .eq math { margin: 8px 0; }
+    .eq math + math { margin-top: 14px; }
+
+    .compare { margin-top: 56px; }
+    .compare h3 { margin-bottom: 14px; }
+
+    /* ---------- tables ---------- */
+    .tbl-wrap { overflow-x: auto; margin-top: 18px; border: 1px solid var(--rule); border-radius: 10px; background: #fff; }
+    table { width: 100%; border-collapse: collapse; font-size: .92rem; font-variant-numeric: tabular-nums; }
+    .tbl-title { margin: 44px 0 0; font-weight: 650; font-size: .98rem; line-height: 1.4; }
+    .tbl-title + .tbl-wrap { margin-top: 12px; }
+    th, td { padding: 11px 16px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--rule); }
+    th:first-child, td:first-child { text-align: left; }
+    thead th { font-weight: 600; color: var(--muted); font-size: .84rem; vertical-align: bottom; line-height: 1.3; }
+    tbody tr:last-child td { border-bottom: 0; }
+    tr.ours td { background: var(--adm-tint); font-weight: 650; }
+    tr.ours td:first-child { box-shadow: inset 3px 0 0 var(--adm); }
+    .pm { color: var(--muted); font-weight: 400; }
+    tr.ours .pm { color: #6a5a86; }
+    .tbl-note { padding: 10px 16px 14px; margin: 0; font-size: .82rem; color: var(--muted); border-top: 1px solid var(--rule); }
+    td.hard { color: var(--adm-deep); font-weight: 650; }
+    td.none { color: var(--fail); }
+    table.handling td, table.handling th { text-align: left; white-space: normal; }
+
+    /* ---------- experiments ---------- */
+    .setup { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; margin: 36px 0 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+    .setup div { padding: 16px 16px 16px 0; }
+    .setup div + div { padding-left: 16px; border-left: 1px solid var(--rule); }
+    .setup dt { font-size: .82rem; color: var(--muted); }
+    .setup dd { margin: 4px 0 0; font-weight: 600; font-size: .98rem; line-height: 1.4; }
+
+    .exp-head { display: flex; justify-content: space-between; align-items: end; gap: 20px; flex-wrap: wrap; }
+    .clips { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 30px; }
+    .clip { margin: 0; }
+    .clip-name { display: block; margin-bottom: 8px; font-weight: 650; font-size: .95rem; line-height: 1.3; }
+    .media { position: relative; }
+    .tag { position: absolute; top: 8px; left: 8px; z-index: 1; font-size: .76rem; font-weight: 700; line-height: 1; padding: 5px 9px; border-radius: 999px; white-space: nowrap; pointer-events: none; }
+    .tag--ok { background: var(--adm-deep); color: #fff; }
+    .tag--fail { background: rgba(255,255,255,.94); color: var(--fail); }
+    .clip video { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; background: #14161a; }
+    .clip.ours video { box-shadow: 0 0 0 3px var(--adm); }
+    .clip img.trace { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 8px; margin-top: 10px; }
+    .clip img.snap { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; margin-top: 10px; }
+    .clip figcaption { margin-top: 8px; font-size: .84rem; line-height: 1.45; color: var(--muted); }
+    .row-label { margin: 26px 0 -14px; font-size: .88rem; font-weight: 650; color: var(--muted); }
+
+    .split { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr); gap: clamp(24px, 4vw, 48px); align-items: center; margin-top: 48px; }
+    .split img { width: 100%; border: 1px solid var(--rule); border-radius: 10px; background: #fff; }
+    .wide-fig { margin: 48px 0 0; }
+    .wide-fig img { width: 100%; border: 1px solid var(--rule); border-radius: 10px; background: #fff; }
+
+    /* ---------- bibtex ---------- */
+    .bib-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+    pre { margin: 18px 0 0; padding: 20px 22px; overflow-x: auto; background: #1f232b; color: #e9ebf0; border-radius: 10px; font: .85rem/1.65 "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace; }
+
+    footer { padding: 28px 0 40px; border-top: 1px solid var(--rule); color: var(--muted); font-size: .85rem; }
+
+    /* ---------- responsive ---------- */
+    @media (max-width: 960px) {
+      .idea { grid-template-columns: 1fr; }
+      .idea-figure { max-width: 560px; }
+      .tasks { grid-template-columns: 1fr; }
+      .step { grid-template-columns: 48px minmax(0, 1fr); }
+      .step .eq { grid-column: 2; }
+      .clips { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .setup { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .setup div, .setup div + div { padding: 14px 14px 14px 0; border-left: 0; border-bottom: 1px solid var(--rule); }
+      .setup div:nth-child(even) { padding-left: 14px; border-left: 1px solid var(--rule); }
+      .setup div:last-child { border-bottom: 0; }
+      .split { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 760px) {
+      .hero { display: block; min-height: 0; padding: 0 0 56px; }
+      .hero-bg { position: relative; inset: auto; z-index: auto; height: auto; aspect-ratio: 16 / 9; }
+      .hero-shade { inset: 0 0 auto 0; aspect-ratio: 16 / 9; z-index: 0; background: linear-gradient(0deg, #121519 0%, rgba(18,21,25,0) 38%); }
+      .hero-grid { position: relative; z-index: 1; grid-template-columns: 1fr; margin-top: -24px; }
+      .hero-copy { grid-column: 1; }
+      .bg-toggle { top: 12px; bottom: auto; right: 12px; z-index: 1; }
+    }
+    @media (max-width: 640px) {
+      body { font-size: 16px; }
+      .nav { display: none; }
+      .pair { grid-template-columns: 1fr 1fr; gap: 10px; }
+      .clips { gap: 12px; }
+      .step { grid-template-columns: 1fr; }
+      .step .eq { grid-column: 1; }
+      th, td { padding: 9px 12px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .idea-fig.play .dot, .idea-fig.play .pl, .idea-fig.play .ghost, .idea-fig.play .metric, .idea-fig.play .exec { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="bar">
+    <div class="wrap bar-in">
+      <a class="mark" href="#top" aria-label="CAMP-MPPI, back to top">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,2 28,9 28,23 16,30 4,23 4,9" fill="#bc8fdd" stroke="#3d2566" stroke-width="2.5"/></svg>
+        CAMP-MPPI
+      </a>
+      <nav class="nav" aria-label="Sections">
+        <a href="#video">Video</a>
+        <a href="#method">Method</a>
+        <a href="#writing">Surface writing</a>
+        <a href="#tray">Tray transport</a>
+        <a href="#bibtex">BibTeX</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- ===================== HERO ===================== -->
+    <section class="hero">
+      <video class="hero-bg" id="hero-bg" muted loop playsinline preload="none" poster="static/images/poster_hero.jpg" aria-hidden="true" tabindex="-1">
+        <source src="static/videos/hero_bg.mp4" type="video/mp4" />
+      </video>
+      <div class="hero-shade" aria-hidden="true"></div>
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <h1>CAMP-MPPI
+            <span class="full">Contact-Aware Manifold Projection MPPI for Hard Dynamics-Level Contact-Wrench Constraints</span>
+          </h1>
+          <p class="byline">Anonymous authors. Submitted to ICRA 2027.</p>
+          <p class="lead">A sampling-based controller that makes contact-wrench and kinematic feasibility a property of every sampled control, rather than a penalty on the rollout cost.</p>
+          <div class="actions">
+            <a class="btn btn--primary" href="static/pdfs/paper.pdf" target="_blank" rel="noopener">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1.5h5.5L13 5v9.5H4z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9.5 1.5V5H13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+              Paper (PDF)
+            </a>
+            <a class="btn" href="#video">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z" fill="currentColor"/></svg>
+              Watch video
+            </a>
+            <span class="btn" aria-disabled="true">Code after review</span>
+          </div>
+        </div>
+      </div>
+      <button class="bg-toggle" type="button" id="bg-toggle" aria-pressed="false" hidden>
+        <svg class="i-pause" viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="3" width="3" height="10" rx="1" fill="currentColor"/><rect x="9" y="3" width="3" height="10" rx="1" fill="currentColor"/></svg>
+        <svg class="i-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5z" fill="currentColor"/></svg>
+        <span class="bg-label">Pause background</span>
+      </button>
+    </section>
+
+    <!-- ===================== VIDEO ===================== -->
+    <section id="video" class="sec">
+      <div class="wrap">
+        <div class="player">
+          <video id="teaser" controls playsinline preload="metadata" poster="static/images/poster_teaser.jpg">
+            <source id="teaser-src" src="static/videos/teaser.mp4" type="video/mp4" />
+          </video>
+          <p class="player-msg" id="teaser-msg" hidden>This video could not play here. <a href="static/videos/teaser.mp4" style="color:#fff">Download the MP4</a>.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== ABSTRACT ===================== -->
+    <section class="sec sec--band abstract">
+      <div class="wrap"><div class="text">
+        <h2>Abstract</h2>
+        <p style="margin-top:20px">Contact-rich manipulation requires not only kinematic feasibility but also dynamics-level admissibility of interaction wrenches to prevent slip, contact loss, or object instability. Existing hard-constrained Model Predictive Path Integral (MPPI) methods primarily enforce kinematic feasibility, whereas force-aware MPPI formulations typically account for interaction forces through rollout objectives or soft penalties.</p>
+        <p>This paper presents Contact-Aware Manifold Projection MPPI (CAMP-MPPI), a sampling-based control framework that jointly enforces contact-manifold consistency, kinematic inequalities, and hard dynamics-level wrench constraints within MPPI rollouts. CAMP-MPPI maps heterogeneous physical constraints into a common commanded-acceleration space, composes them into a single admissible set, and projects each sampled control to its closest feasible acceleration under an inertia-weighted metric. When a contact manifold is present, the projected controls are propagated through manifold-consistent dynamics.</p>
+        <p>Experiments on a Franka manipulator demonstrate stable surface interaction while maintaining admissible contact wrenches and stable passive-object transport under support-wrench constraints. The results show that CAMP-MPPI provides a unified mechanism for enforcing coupled kinematic and dynamics-level feasibility directly within the MPPI sampling process.</p>
+      </div></div>
+    </section>
+
+    <!-- ===================== PROBLEM ===================== -->
+    <section id="problem" class="sec">
+      <div class="wrap">
+        <h2>Kinematic feasibility alone does not guarantee physically admissible interaction</h2>
+        <p class="standfirst">A motion can stay on a contact surface, or clear an obstacle, and still require a contact or support wrench outside its admissible range. Treating one side as a hard constraint and the other as a cost leaves a failure mode open.</p>
+
+        <div class="tasks">
+          <article class="task">
+            <h3>Writing on a curved surface</h3>
+            <p>The pen has to stay on the surface while the normal force stays inside its admissible band.</p>
+            <div class="pair">
+              <figure>
+                <img src="static/images/writing_result_pr.jpg" alt="Partial figure-eight with thick, stamped white marks on a curved black surface" loading="lazy" width="1100" height="588" />
+                <figcaption><b>Surface consistency only</b>No wrench limit, so contact loading grows and the trace is stamped and heavily pressed (PR-MPPI).</figcaption>
+              </figure>
+              <figure>
+                <img src="static/images/writing_result_torque.jpg" alt="Figure-eight with over-pressed regions and faint gaps" loading="lazy" width="1100" height="612" />
+                <figcaption><b>Wrench as a soft penalty</b>Loading drifts out of range, leaving over-pressed regions and faint or missing strokes (Torque-Sampling MPPI).</figcaption>
+              </figure>
+            </div>
+          </article>
+
+          <article class="task">
+            <h3>Carrying a tall object on a tray</h3>
+            <p>The tray has to swerve around a hanging obstacle without accelerating hard enough to tip the passive object.</p>
+            <div class="pair">
+              <figure>
+                <img src="static/images/tray_fail_collision.jpg" alt="Tall block on a tray touching a hanging white sphere" loading="lazy" width="1100" height="727" />
+                <figcaption><b>Not enough evasion</b>The object collides with the obstacle.</figcaption>
+              </figure>
+              <figure>
+                <img src="static/images/tray_fail_tipped.jpg" alt="Tall block tipped over on the tray" loading="lazy" width="1100" height="738" />
+                <figcaption><b>Too aggressive</b>The required support wrench exceeds its limit and the object tips.</figcaption>
+              </figure>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== METHOD ===================== -->
+    <section id="method" class="sec sec--band">
+      <div class="wrap">
+        <div class="idea">
+          <div>
+            <h2>One admissible set, enforced inside every rollout</h2>
+            <p class="standfirst">CAMP-MPPI samples commanded accelerations. At every rollout state it pulls wrench limits and kinematic safety constraints back into that space, projects each sample onto their intersection, and propagates the result through manifold-constrained dynamics.</p>
+          </div>
+          <figure class="idea-figure">
+            <svg class="idea-fig" viewBox="40 60 420 340" role="img" aria-labelledby="hf-title hf-desc" xmlns="http://www.w3.org/2000/svg">
+<title id="hf-title">Composite admissible set and sample projection</title>
+<desc id="hf-desc">A green wrench-induced set and a blue kinematic set intersect in a purple admissible set. Grey raw MPPI samples outside it are moved to the closest admissible point under the inertia metric, and their weighted average stays inside the set.</desc>
+<polygon class="set-w" points="70.0,290.0 150.0,380.0 285.0,370.0 330.0,250.0 250.0,140.0 110.0,160.0"/>
+<polygon class="set-k" points="190.0,320.0 300.0,340.0 400.0,290.0 420.0,170.0 330.0,80.0 200.0,120.0 170.0,210.0"/>
+<polygon class="set-a" points="170.0,210.0 190.0,320.0 296.5,339.4 330.0,250.0 250.0,140.0 190.5,148.5"/>
+<text class="lbl lbl-w" x="84" y="232">wrench</text>
+<text class="lbl lbl-w" x="84" y="248">preimage</text>
+<text class="lbl lbl-k" x="352" y="132">kinematic</text>
+<text class="lbl lbl-a" x="226" y="212">𝒜</text>
+<ellipse class="metric" cx="172.0" cy="335.7" rx="59.5" ry="23.9" transform="rotate(50.7 172.0 335.7)"/>
+<g class="smp" style="--dx:-4.7px;--dy:-4.7px;--i:0">
+<circle class="ghost" cx="318.1" cy="298.9" r="3.6"/>
+<line class="pl" x1="318.1" y1="298.9" x2="313.4" y2="294.2" pathLength="1"/>
+<circle class="dot" cx="318.1" cy="298.9" r="4.2"/>
+</g>
+<g class="smp" style="--dx:-6.5px;--dy:-12.0px;--i:1">
+<circle class="ghost" cx="302.1" cy="351.2" r="3.6"/>
+<line class="pl" x1="302.1" y1="351.2" x2="295.6" y2="339.2" pathLength="1"/>
+<circle class="dot" cx="302.1" cy="351.2" r="4.2"/>
+</g>
+<g class="smp" style="--dx:-10.4px;--dy:-19.0px;--i:2">
+<circle class="ghost" cx="291.6" cy="355.6" r="3.6"/>
+<line class="pl" x1="291.6" y1="355.6" x2="281.2" y2="336.6" pathLength="1"/>
+<circle class="dot" cx="291.6" cy="355.6" r="4.2"/>
+</g>
+<g class="smp in" style="--dx:0.0px;--dy:0.0px;--i:3">
+<circle class="dot" cx="321.5" cy="253.0" r="4.2"/>
+</g>
+<g class="smp" style="--dx:-0.8px;--dy:-1.4px;--i:4">
+<circle class="ghost" cx="289.5" cy="339.3" r="3.6"/>
+<line class="pl" x1="289.5" y1="339.3" x2="288.7" y2="337.9" pathLength="1"/>
+<circle class="dot" cx="289.5" cy="339.3" r="4.2"/>
+</g>
+<g class="smp" style="--dx:-24.5px;--dy:-24.8px;--i:5">
+<circle class="ghost" cx="346.4" cy="296.3" r="3.6"/>
+<line class="pl" x1="346.4" y1="296.3" x2="321.9" y2="271.5" pathLength="1"/>
+<circle class="dot" cx="346.4" cy="296.3" r="4.2"/>
+</g>
+<g class="smp" style="--dx:-23.7px;--dy:-24.0px;--i:6">
+<circle class="ghost" cx="324.1" cy="352.9" r="3.6"/>
+<line class="pl" x1="324.1" y1="352.9" x2="300.4" y2="328.9" pathLength="1"/>
+<circle class="dot" cx="324.1" cy="352.9" r="4.2"/>
+</g>
+<g class="smp in" style="--dx:0.0px;--dy:0.0px;--i:7">
+<circle class="dot" cx="316.3" cy="281.4" r="4.2"/>
+</g>
+<g class="smp" style="--dx:-1.8px;--dy:-3.3px;--i:8">
+<circle class="ghost" cx="240.0" cy="332.1" r="3.6"/>
+<line class="pl" x1="240.0" y1="332.1" x2="238.2" y2="328.8" pathLength="1"/>
+<circle class="dot" cx="240.0" cy="332.1" r="4.2"/>
+</g>
+<g class="smp" style="--dx:-17.7px;--dy:-48.7px;--i:9">
+<circle class="ghost" cx="207.7" cy="368.7" r="3.6"/>
+<line class="pl" x1="207.7" y1="368.7" x2="190.0" y2="320.0" pathLength="1"/>
+<circle class="dot" cx="207.7" cy="368.7" r="4.2"/>
+</g>
+<g class="smp in" style="--dx:0.0px;--dy:0.0px;--i:10">
+<circle class="dot" cx="211.2" cy="322.3" r="4.2"/>
+</g>
+<g class="smp in" style="--dx:0.0px;--dy:0.0px;--i:11">
+<circle class="dot" cx="244.5" cy="300.1" r="4.2"/>
+</g>
+<g class="smp" style="--dx:-17.0px;--dy:-17.2px;--i:12">
+<circle class="ghost" cx="327.1" cy="320.2" r="3.6"/>
+<line class="pl" x1="327.1" y1="320.2" x2="310.1" y2="303.0" pathLength="1"/>
+<circle class="dot" cx="327.1" cy="320.2" r="4.2"/>
+</g>
+<g class="smp hi" style="--dx:18.0px;--dy:-15.7px;--i:13">
+<circle class="ghost" cx="172.0" cy="335.7" r="3.6"/>
+<line class="pl" x1="172.0" y1="335.7" x2="190.0" y2="320.0" pathLength="1"/>
+<circle class="dot" cx="172.0" cy="335.7" r="4.2"/>
+</g>
+<g class="smp" style="--dx:-4.8px;--dy:-4.8px;--i:14">
+<circle class="ghost" cx="315.2" cy="307.0" r="3.6"/>
+<line class="pl" x1="315.2" y1="307.0" x2="310.4" y2="302.2" pathLength="1"/>
+<circle class="dot" cx="315.2" cy="307.0" r="4.2"/>
+</g>
+<g class="smp" style="--dx:-3.6px;--dy:-6.5px;--i:15">
+<circle class="ghost" cx="229.3" cy="333.0" r="3.6"/>
+<line class="pl" x1="229.3" y1="333.0" x2="225.7" y2="326.5" pathLength="1"/>
+<circle class="dot" cx="229.3" cy="333.0" r="4.2"/>
+</g>
+<g class="smp" style="--dx:-8.8px;--dy:-16.3px;--i:16">
+<circle class="ghost" cx="261.2" cy="347.6" r="3.6"/>
+<line class="pl" x1="261.2" y1="347.6" x2="252.4" y2="331.3" pathLength="1"/>
+<circle class="dot" cx="261.2" cy="347.6" r="4.2"/>
+</g>
+<g class="smp" style="--dx:-62.4px;--dy:-63.2px;--i:17">
+<circle class="ghost" cx="379.5" cy="347.5" r="3.6"/>
+<line class="pl" x1="379.5" y1="347.5" x2="317.1" y2="284.3" pathLength="1"/>
+<circle class="dot" cx="379.5" cy="347.5" r="4.2"/>
+</g>
+<g class="exec"><circle cx="300.6" cy="311.1" r="9" class="exec-ring"/><circle cx="300.6" cy="311.1" r="3.2" class="exec-core"/></g>
+</svg>
+            <ul class="legend" aria-hidden="true">
+              <li><span class="sw sw--w"></span>Wrench-induced set</li>
+              <li><span class="sw sw--k"></span>Kinematic set</li>
+              <li><span class="sw sw--a"></span>Admissible set</li>
+              <li><span class="sw sw--dot sw--raw"></span>Raw sample</li>
+              <li><span class="sw sw--dot sw--proj"></span>Projected sample</li>
+              <li><span class="sw sw--exec"></span>Executed command</li>
+            </ul>
+            <div class="fig-cap">
+              <span>Raw samples move to the closest admissible acceleration under the inertia metric (dashed ellipse). Their weighted average stays inside the set.</span>
+              <button class="linkbtn" type="button" id="replay">Replay</button>
+            </div>
+        </figure>
+        </div>
+
+        <figure class="pipeline">
+          <img src="static/images/fig2_pipeline.png" alt="CAMP-MPPI pipeline: wrench and kinematic inequalities are combined into one admissible set in acceleration space; projected accelerations are mapped onto the configuration manifold; constrained rollouts are evaluated over the horizon; a feasibility-preserving weighted update gives the executed control." width="3200" height="1053" loading="lazy" />
+          <figcaption class="cap"><b>Fig. 2</b>Contact-wrench and kinematic constraints are mapped into a unified admissible set in commanded-acceleration space, onto which each sampled acceleration is projected under the generalized inertia metric. Projected commands are propagated through manifold-constrained dynamics and scored by the task cost; a feasibility-preserving weighted update of the first-step commands gives the executed control.</figcaption>
+        </figure>
+
+        <ol class="steps">
+          <li class="step">
+            <div>
+              <h3>Build one admissible set in acceleration space</h3>
+              <p>At a fixed rollout state, the reaction wrench needed to stay on the contact manifold is affine in the commanded acceleration, so each polyhedral wrench limit pulls back to a linear inequality on <i>a</i>. Kinematic safety functions, imposed through a second-order barrier condition, reduce to the same form. Stacking both gives a single convex set.</p>
+            </div>
+            <div class="eq" role="group" aria-label="Wrench preimage and composite admissible set">
+              <math display="block"><msub><mi>𝝀</mi><mi>i</mi></msub><mo stretchy="false">(</mo><mi>𝒂</mi><mo stretchy="false">)</mo><mo>=</mo><msub><mi>𝑮</mi><mi>i</mi></msub><mi>𝒂</mi><mo>+</mo><msub><mi>𝒈</mi><mi>i</mi></msub><mo>∈</mo><msub><mi>𝒦</mi><mi>i</mi></msub><mspace width="0.6em"/><mo>⟺</mo><mspace width="0.6em"/><msubsup><mi>𝑪</mi><mi>i</mi><mi>λ</mi></msubsup><mi>𝒂</mi><mo>≤</mo><msubsup><mi>𝒅</mi><mi>i</mi><mi>λ</mi></msubsup></math>
+              <math display="block"><mi>𝒜</mi><mo stretchy="false">(</mo><mi>𝒒</mi><mo>,</mo><mover accent="true"><mi>𝒒</mi><mo>˙</mo></mover><mo stretchy="false">)</mo><mo>=</mo><mo stretchy="false">{</mo><mi>𝒂</mi><mo>∈</mo><msup><mi>ℝ</mi><mi>n</mi></msup><mo>∣</mo><mi>𝑪</mi><mi>𝒂</mi><mo>≤</mo><mi>𝒅</mi><mo stretchy="false">}</mo></math>
+            </div>
+          </li>
+          <li class="step">
+            <div>
+              <h3>Project each sample, then roll out on the manifold</h3>
+              <p>Each raw sample is moved to the closest admissible acceleration under the generalized inertia metric, in one joint projection rather than sequential corrections. The projected command is propagated through manifold-constrained dynamics, and the set is rebuilt at the next rollout state across the whole horizon.</p>
+            </div>
+            <div class="eq" role="group" aria-label="Inertia-weighted projection and manifold-constrained acceleration">
+              <math display="block"><msup><mi>𝒂</mi><mo>⋆</mo></msup><mo>=</mo><munder><mi>arg min</mi><mi>𝒂</mi></munder><mspace width="0.3em"/><mfrac><mn>1</mn><mn>2</mn></mfrac><msup><mrow><mo stretchy="false">(</mo><mi>𝒂</mi><mo>−</mo><msup><mi>𝒂</mi><mtext>raw</mtext></msup><mo stretchy="false">)</mo></mrow><mo>⊤</mo></msup><mi>𝑴</mi><mo stretchy="false">(</mo><mi>𝒂</mi><mo>−</mo><msup><mi>𝒂</mi><mtext>raw</mtext></msup><mo stretchy="false">)</mo><mspace width="0.6em"/><mtext>s.t.</mtext><mspace width="0.4em"/><mi>𝑪</mi><mi>𝒂</mi><mo>≤</mo><mi>𝒅</mi></math>
+              <math display="block"><mover accent="true"><mi>𝒒</mi><mo>¨</mo></mover><mo>=</mo><msup><mi>𝒂</mi><mo>⋆</mo></msup><mo>+</mo><msup><mi>𝑴</mi><mrow><mo>−</mo><mn>1</mn></mrow></msup><msubsup><mi>𝑱</mi><mi>c</mi><mo>⊤</mo></msubsup><msub><mi>𝝀</mi><mtext>req</mtext></msub><mo>,</mo><mspace width="0.8em"/><msub><mi>𝝀</mi><mtext>req</mtext></msub><mo>=</mo><mo>−</mo><msub><mi>𝜦</mi><mi>c</mi></msub><mo stretchy="false">(</mo><msub><mi>𝑱</mi><mi>c</mi></msub><msup><mi>𝒂</mi><mo>⋆</mo></msup><mo>+</mo><msub><mover accent="true"><mi>𝑱</mi><mo>˙</mo></mover><mi>c</mi></msub><mover accent="true"><mi>𝒒</mi><mo>˙</mo></mover><mo stretchy="false">)</mo></math>
+            </div>
+          </li>
+          <li class="step">
+            <div>
+              <h3>Execute a feasibility-preserving weighted update</h3>
+              <p>At the first step every sample starts from the same measured state, so all projected commands share one convex admissible set and their MPPI-weighted average stays inside it. Manifold consistency of the executed motion comes from the same constrained dynamics.</p>
+            </div>
+            <div class="eq" role="group" aria-label="Executed command stays admissible">
+              <math display="block"><msubsup><mi>𝒂</mi><mn>0</mn><mtext>exec</mtext></msubsup><mo>=</mo><munderover><mo>∑</mo><mrow><mi>k</mi><mo>=</mo><mn>1</mn></mrow><mi>K</mi></munderover><msub><mi>w</mi><mi>k</mi></msub><msubsup><mi>𝒂</mi><mn>0</mn><mrow><mi>k</mi><mo>,</mo><mo>⋆</mo></mrow></msubsup><mspace width="0.8em"/><mo>⟹</mo><mspace width="0.8em"/><msub><mi>𝑪</mi><mn>0</mn></msub><msubsup><mi>𝒂</mi><mn>0</mn><mtext>exec</mtext></msubsup><mo>≤</mo><msub><mi>𝒅</mi><mn>0</mn></msub></math>
+            </div>
+          </li>
+        </ol>
+
+        <div class="compare">
+          <h3>How the compared controllers treat each constraint</h3>
+          <div class="tbl-wrap">
+            <table class="handling">
+              <thead>
+                <tr><th scope="col">Controller</th><th scope="col">Manifold and kinematic constraints</th><th scope="col">Contact and support wrench</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Vanilla MPPI</td><td>Rollout cost</td><td>Rollout cost</td></tr>
+                <tr><td>PR-MPPI</td><td class="hard">Hard, by projection</td><td class="none">Not modeled</td></tr>
+                <tr><td>Torque-Sampling MPPI</td><td>Rollout cost</td><td>Soft rollout cost</td></tr>
+                <tr class="ours"><td>CAMP-MPPI</td><td class="hard">Hard, one composite set</td><td class="hard">Hard, one composite set</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== SETUP ===================== -->
+    <section id="experiments" class="sec">
+      <div class="wrap">
+        <h2>Hardware experiments</h2>
+        <p class="standfirst">Two real-world tasks, each coupling a geometric or kinematic requirement with a dynamics-level wrench limit. Every method runs 10 trials per task.</p>
+        <dl class="setup">
+          <div><dt>Robot</dt><dd>Franka Research 3</dd></div>
+          <div><dt>Rollouts</dt><dd>K = 1024 on an RTX 4070</dd></div>
+          <div><dt>Horizon</dt><dd>H = 15 writing, H = 36 tray</dd></div>
+          <div><dt>Control rate</dt><dd>100 Hz, under 10 ms per cycle</dd></div>
+          <div><dt>Baselines</dt><dd>Vanilla, PR, Torque-Sampling MPPI</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <!-- ===================== WRITING ===================== -->
+    <section id="writing" class="sec sec--tight">
+      <div class="wrap">
+        <div class="exp-head">
+          <div>
+            <h2>Curved-surface writing</h2>
+            <p class="standfirst">The robot traces a figure-eight on a curved surface. It must stay on the contact manifold while the required normal wrench stays inside the admissible band around a nominal 3 N.</p>
+          </div>
+          <button class="btn" type="button" data-restart="writing-clips">Restart clips together</button>
+        </div>
+
+        <div class="clips" id="writing-clips">
+          <figure class="clip ours">
+            <span class="clip-name">CAMP-MPPI</span>
+            <div class="media"><span class="tag tag--ok">Success</span><video muted loop playsinline preload="none" poster="static/images/poster_writing_camp.jpg" aria-label="CAMP-MPPI writing on the curved surface"><source src="static/videos/writing_camp.mp4" type="video/mp4" /></video></div>
+            <img class="trace" src="static/images/writing_result_camp.jpg" alt="Clean, complete figure-eight trace" loading="lazy" width="1100" height="634" />
+            <figcaption>Completion 100 %, load feasibility 100 %.</figcaption>
+          </figure>
+          <figure class="clip">
+            <span class="clip-name">Torque-Sampling MPPI</span>
+            <div class="media"><span class="tag tag--fail">Fail</span><video muted loop playsinline preload="none" poster="static/images/poster_writing_torque.jpg" aria-label="Torque-Sampling MPPI writing on the curved surface"><source src="static/videos/writing_torque.mp4" type="video/mp4" /></video></div>
+            <img class="trace" src="static/images/writing_result_torque.jpg" alt="Over-pressed figure-eight with faint gaps" loading="lazy" width="1100" height="612" />
+            <figcaption>Completion 84 %, load feasibility 88.4 %.</figcaption>
+          </figure>
+          <figure class="clip">
+            <span class="clip-name">PR-MPPI</span>
+            <div class="media"><span class="tag tag--fail">Fail</span><video muted loop playsinline preload="none" poster="static/images/poster_writing_pr.jpg" aria-label="PR-MPPI writing on the curved surface"><source src="static/videos/writing_pr.mp4" type="video/mp4" /></video></div>
+            <img class="trace" src="static/images/writing_result_pr.jpg" alt="Partial, heavily pressed trace" loading="lazy" width="1100" height="588" />
+            <figcaption>Completion 39 %, load feasibility 52.6 %.</figcaption>
+          </figure>
+          <figure class="clip">
+            <span class="clip-name">Vanilla MPPI</span>
+            <div class="media"><span class="tag tag--fail">Fail</span><video muted loop playsinline preload="none" poster="static/images/poster_writing_vanilla.jpg" aria-label="Vanilla MPPI writing on the curved surface"><source src="static/videos/writing_vanilla.mp4" type="video/mp4" /></video></div>
+            <img class="trace" src="static/images/writing_result_vanilla.jpg" alt="Short, faint, off-path trace" loading="lazy" width="1100" height="665" />
+            <figcaption>Completion 11 %, load feasibility 26.2 %.</figcaption>
+          </figure>
+        </div>
+
+        <p class="tbl-title" id="tbl-1">Table I. Performance and contact-load feasibility on curved-surface writing (10 trials)</p>
+        <div class="tbl-wrap">
+          <table aria-labelledby="tbl-1">
+            <thead>
+              <tr>
+                <th scope="col">Method</th>
+                <th scope="col">Path RMSE<br />[mm]</th>
+                <th scope="col">Manifold RMS<br />[mm]</th>
+                <th scope="col">Load feas.<br />[%]</th>
+                <th scope="col">Max viol.<br />[N]</th>
+                <th scope="col">Completion<br />[%]</th>
+                <th scope="col">Comp. time<br />[ms]</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Vanilla MPPI<sup>†</sup></td><td>16.11 <span class="pm">± 14.11</span></td><td>1.675 <span class="pm">± 10.31</span></td><td>26.2 <span class="pm">± 7.1</span></td><td>27.1 <span class="pm">± 18.9</span></td><td>11 <span class="pm">± 0.6</span></td><td>3.02 <span class="pm">± 0.02</span></td></tr>
+              <tr><td>PR-MPPI<sup>†</sup></td><td>0.686 <span class="pm">± 0.109</span></td><td>0.590 <span class="pm">± 0.098</span></td><td>52.6 <span class="pm">± 5.6</span></td><td>7.4 <span class="pm">± 18.3</span></td><td>39 <span class="pm">± 1.8</span></td><td>3.18 <span class="pm">± 0.34</span></td></tr>
+              <tr><td>Torque-Sampling MPPI<sup>†</sup></td><td>2.249 <span class="pm">± 0.380</span></td><td>1.211 <span class="pm">± 0.720</span></td><td>88.4 <span class="pm">± 3.2</span></td><td>2.9 <span class="pm">± 1.6</span></td><td>84 <span class="pm">± 6.7</span></td><td>4.33 <span class="pm">± 0.03</span></td></tr>
+              <tr class="ours"><td>CAMP-MPPI</td><td>0.735 <span class="pm">± 0.134</span></td><td>1.087 <span class="pm">± 0.011</span></td><td>100.0 <span class="pm">± 0.0</span></td><td>0.0 <span class="pm">± 0.0</span></td><td>100.0 <span class="pm">± 0.0</span></td><td>6.68 <span class="pm">± 0.11</span></td></tr>
+            </tbody>
+          </table>
+          <p class="tbl-note"><sup>†</sup> Path RMSE and manifold RMS are computed over the executed portion only, so small geometric errors from incomplete runs should be read together with completion.</p>
+        </div>
+
+        <div class="split">
+          <figure style="margin:0">
+            <img src="static/images/fig4_force.png" alt="Normal force over 21 seconds. After contact at about 1.5 s, the required normal wrench stays between 2 and 4 N and the measured force stays near 3 N." width="2000" height="1183" loading="lazy" />
+          </figure>
+          <div>
+            <h3>The required wrench stays inside the band</h3>
+            <p class="note" style="margin-top:10px;font-size:.98rem">After contact is established, the normal wrench required by CAMP-MPPI remains within the 2–4 N admissible band, and the measured normal force tracks the nominal 3 N with an RMSE of 0.30 N. The controller keeps the geometric contact constraint and admissible loading throughout the trace.</p>
+            <p class="note" style="margin:0">Fig. 4. Wrench admissibility and measured force tracking during curved-surface writing.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== TRAY ===================== -->
+    <section id="tray" class="sec">
+      <div class="wrap">
+        <div class="exp-head">
+          <div>
+            <h2>Tray transport past an obstacle</h2>
+            <p class="standfirst">A tall passive object rides on a tray through an obstacle-constrained workspace. The controller needs enough evasive motion to keep its clearance, but not so much tray acceleration that the support wrench tips the object.</p>
+          </div>
+          <button class="btn" type="button" data-restart="tray-clips">Restart clips together</button>
+        </div>
+
+        <div id="tray-clips">
+          <p class="row-label">Hardware</p>
+          <div class="clips">
+            <figure class="clip ours">
+              <span class="clip-name">CAMP-MPPI</span>
+            <div class="media"><span class="tag tag--ok">Success</span><video muted loop playsinline preload="none" poster="static/images/poster_tray_camp.jpg" aria-label="CAMP-MPPI tray transport on hardware"><source src="static/videos/tray_camp.mp4" type="video/mp4" /></video></div>
+              <img class="snap" src="static/images/tray_snapshot_camp.jpg" alt="Motion snapshot: the tray passes below the obstacle and the object stays upright" loading="lazy" width="1816" height="1021" />
+              <figcaption>Upright 10, collision 0, tipped 0.</figcaption>
+            </figure>
+            <figure class="clip">
+              <span class="clip-name">Torque-Sampling MPPI</span>
+            <div class="media"><span class="tag tag--fail">Fail</span><video muted loop playsinline preload="none" poster="static/images/poster_tray_torque.jpg" aria-label="Torque-Sampling MPPI tray transport on hardware"><source src="static/videos/tray_torque.mp4" type="video/mp4" /></video></div>
+              <img class="snap" src="static/images/tray_snapshot_torque.jpg" alt="Motion snapshot: the object moves into the obstacle" loading="lazy" width="1810" height="1018" />
+              <figcaption>Upright 0, collision 8, tipped 2.</figcaption>
+            </figure>
+            <figure class="clip">
+              <span class="clip-name">PR-MPPI</span>
+            <div class="media"><span class="tag tag--fail">Fail</span><video muted loop playsinline preload="none" poster="static/images/poster_tray_pr.jpg" aria-label="PR-MPPI tray transport on hardware"><source src="static/videos/tray_pr.mp4" type="video/mp4" /></video></div>
+              <img class="snap" src="static/images/tray_snapshot_pr.jpg" alt="Motion snapshot: the evasive motion tips the object" loading="lazy" width="1788" height="1005" />
+              <figcaption>Upright 0, collision 0, tipped 10.</figcaption>
+            </figure>
+            <figure class="clip">
+              <span class="clip-name">Vanilla MPPI</span>
+            <div class="media"><span class="tag tag--fail">Fail</span><video muted loop playsinline preload="none" poster="static/images/poster_tray_vanilla.jpg" aria-label="Vanilla MPPI tray transport on hardware"><source src="static/videos/tray_vanilla.mp4" type="video/mp4" /></video></div>
+              <img class="snap" src="static/images/tray_snapshot_vanilla.jpg" alt="Motion snapshot: the object tips on the tray" loading="lazy" width="1832" height="1027" />
+              <figcaption>Upright 0, collision 3, tipped 7.</figcaption>
+            </figure>
+          </div>
+
+          <p class="row-label">Simulation</p>
+          <div class="clips">
+            <figure class="clip ours">
+              <span class="clip-name">CAMP-MPPI</span>
+            <div class="media"><span class="tag tag--ok">Success</span><video muted loop playsinline preload="none" poster="static/images/poster_sim_tray_camp.jpg" aria-label="CAMP-MPPI tray transport in simulation"><source src="static/videos/sim_tray_camp.mp4" type="video/mp4" /></video></div>
+            </figure>
+            <figure class="clip">
+              <span class="clip-name">Torque-Sampling MPPI</span>
+            <div class="media"><span class="tag tag--fail">Fail</span><video muted loop playsinline preload="none" poster="static/images/poster_sim_tray_torque.jpg" aria-label="Torque-Sampling MPPI tray transport in simulation"><source src="static/videos/sim_tray_torque.mp4" type="video/mp4" /></video></div>
+            </figure>
+            <figure class="clip">
+              <span class="clip-name">PR-MPPI</span>
+            <div class="media"><span class="tag tag--fail">Fail</span><video muted loop playsinline preload="none" poster="static/images/poster_sim_tray_pr.jpg" aria-label="PR-MPPI tray transport in simulation"><source src="static/videos/sim_tray_pr.mp4" type="video/mp4" /></video></div>
+            </figure>
+            <figure class="clip">
+              <span class="clip-name">Vanilla MPPI</span>
+            <div class="media"><span class="tag tag--fail">Fail</span><video muted loop playsinline preload="none" poster="static/images/poster_sim_tray_vanilla.jpg" aria-label="Vanilla MPPI tray transport in simulation"><source src="static/videos/sim_tray_vanilla.mp4" type="video/mp4" /></video></div>
+            </figure>
+          </div>
+        </div>
+
+        <p class="tbl-title" id="tbl-2">Table II. Support-wrench feasibility, task outcomes, and computation time on tray transport (10 trials)</p>
+        <div class="tbl-wrap">
+          <table aria-labelledby="tbl-2">
+            <thead>
+              <tr>
+                <th scope="col">Method</th>
+                <th scope="col">Wrench feas.<br />[%]</th>
+                <th scope="col">Max viol.<br />[mm]</th>
+                <th scope="col">Viol. time<br />[%]</th>
+                <th scope="col">Peak |a<sub>h</sub>|/a<sub>max</sub><br />[%]</th>
+                <th scope="col">Upright / Coll. / Tip.<br />[trials]</th>
+                <th scope="col">Comp. time<br />[ms]</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Vanilla MPPI</td><td>80.2 <span class="pm">± 2.4</span></td><td>41.1 <span class="pm">± 9.7</span></td><td>19.8 <span class="pm">± 4.0</span></td><td>137 <span class="pm">± 11.9</span></td><td>0 / 3 / 7</td><td>5.23 <span class="pm">± 0.33</span></td></tr>
+              <tr><td>PR-MPPI</td><td>82.4 <span class="pm">± 4.0</span></td><td>96.7 <span class="pm">± 12.4</span></td><td>17.6 <span class="pm">± 4.3</span></td><td>160 <span class="pm">± 19.6</span></td><td>0 / 0 / 10</td><td>5.81 <span class="pm">± 0.31</span></td></tr>
+              <tr><td>Torque-Sampling MPPI</td><td>86.2 <span class="pm">± 6.2</span></td><td>35.1 <span class="pm">± 13.5</span></td><td>18.8 <span class="pm">± 6.2</span></td><td>125 <span class="pm">± 26.1</span></td><td>0 / 8 / 2</td><td>6.76 <span class="pm">± 0.58</span></td></tr>
+              <tr class="ours"><td>CAMP-MPPI</td><td>100.0 <span class="pm">± 0.0</span></td><td>0.0 <span class="pm">± 0.0</span></td><td>0.0 <span class="pm">± 0.0</span></td><td>97 <span class="pm">± 1.9</span></td><td>10 / 0 / 0</td><td>8.25 <span class="pm">± 0.39</span></td></tr>
+            </tbody>
+          </table>
+          <p class="tbl-note">Task outcomes count upright completions, collisions, and tipping failures.</p>
+        </div>
+
+        <figure class="wide-fig">
+          <img src="static/images/fig6_constraints.png" alt="Left: obstacle clearance and tipping violation over time for the four methods. Right: per-trial minimum clearance versus maximum tipping violation; only CAMP-MPPI trials fall in the region where both constraints are satisfied." width="3000" height="1105" loading="lazy" />
+          <figcaption class="cap"><b>Fig. 6</b>Constraint satisfaction on tray transport. Left: minimum obstacle clearance and tipping-constraint violation over time; red lines mark the admissible limits. Right: trial-level minimum clearance against maximum tipping violation. CAMP-MPPI stays in the region where both constraints hold, while the baselines violate collision avoidance, the tipping limit, or both.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ===================== CONCLUSION ===================== -->
+    <section class="sec sec--band">
+      <div class="wrap"><div class="text">
+        <h2>Takeaway</h2>
+        <p class="standfirst" style="color:#2b3038">Enforcing dynamics-level wrench admissibility directly inside the MPPI sampling process, together with geometric and kinematic constraints, removes the trade-off that soft or partial constraint handling leaves open. Future work will address contact-mode transitions, uncertainty-aware wrench constraints, and more general multi-contact interactions.</p>
+      </div></div>
+    </section>
+
+    <!-- ===================== BIBTEX ===================== -->
+    <section id="bibtex" class="sec">
+      <div class="wrap"><div class="text">
+        <div class="bib-head">
+          <h2>BibTeX</h2>
+          <button class="btn" type="button" id="copy-bib">Copy</button>
+        </div>
+        <!-- Replace author/year after the review period. -->
+        <pre id="bib"><code>@inproceedings{campmppi,
+  title     = {{CAMP-MPPI}: Contact-Aware Manifold Projection {MPPI} for
+               Hard Dynamics-Level Contact-Wrench Constraints},
+  author    = {Anonymous Authors},
+  booktitle = {IEEE International Conference on Robotics and Automation (ICRA)},
+  note      = {Under review},
+  year      = {2027}
+}</code></pre>
+      </div></div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">CAMP-MPPI project page. Anonymized for review.</div>
+  </footer>
+
+  <script>
+    (function () {
+      var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      /* hero background loop: skipped for reduced motion or data saver; pausable; paused off-screen */
+      var bg = document.getElementById('hero-bg');
+      var toggle = document.getElementById('bg-toggle');
+      var saveData = navigator.connection && navigator.connection.saveData;
+      if (bg && !reduce && !saveData) {
+        var userPaused = false;
+        var tryPlay = function () { var p = bg.play(); if (p && p.catch) p.catch(function () {}); };
+        bg.preload = 'auto';
+        tryPlay();
+        if (toggle) {
+          toggle.hidden = false;
+          var label = toggle.querySelector('.bg-label');
+          toggle.addEventListener('click', function () {
+            userPaused = !userPaused;
+            if (userPaused) { bg.pause(); } else { tryPlay(); }
+            toggle.setAttribute('aria-pressed', userPaused ? 'true' : 'false');
+            label.textContent = userPaused ? 'Play background' : 'Pause background';
+          });
+        }
+        if ('IntersectionObserver' in window) {
+          new IntersectionObserver(function (es) {
+            es.forEach(function (e) { if (e.isIntersecting) { if (!userPaused) tryPlay(); } else { bg.pause(); } });
+          }, { threshold: 0.05 }).observe(bg);
+        }
+      }
+
+      /* projection figure: plays once when it scrolls into view, replay on request */
+      var fig = document.querySelector('.idea-fig');
+      function play() {
+        if (!fig || reduce) return;
+        fig.classList.remove('play');
+        void fig.getBoundingClientRect();
+        fig.classList.add('play');
+      }
+      if (fig && !reduce) {
+        if ('IntersectionObserver' in window) {
+          var seen = new IntersectionObserver(function (es) {
+            es.forEach(function (e) { if (e.isIntersecting) { play(); seen.disconnect(); } });
+          }, { threshold: 0.45 });
+          seen.observe(fig);
+        } else { play(); }
+      }
+      var replay = document.getElementById('replay');
+      if (replay) {
+        if (reduce) replay.hidden = true;
+        replay.addEventListener('click', play);
+      }
+
+      /* teaser: show a note if the file is not uploaded yet */
+      var src = document.getElementById('teaser-src');
+      var msg = document.getElementById('teaser-msg');
+      if (src && msg) src.addEventListener('error', function () { msg.hidden = false; });
+
+      /* comparison clips: play only while visible; show controls instead when motion is reduced */
+      var clips = Array.prototype.slice.call(document.querySelectorAll('.clip video'));
+      if (reduce) {
+        clips.forEach(function (v) { v.controls = true; v.preload = 'metadata'; });
+      } else if ('IntersectionObserver' in window) {
+        var io = new IntersectionObserver(function (entries) {
+          entries.forEach(function (e) {
+            var v = e.target;
+            if (e.isIntersecting) { v.preload = 'auto'; var p = v.play(); if (p && p.catch) p.catch(function () {}); }
+            else { v.pause(); }
+          });
+        }, { threshold: 0.25 });
+        clips.forEach(function (v) { io.observe(v); });
+      } else {
+        clips.forEach(function (v) { v.autoplay = true; });
+      }
+
+      Array.prototype.forEach.call(document.querySelectorAll('[data-restart]'), function (btn) {
+        btn.addEventListener('click', function () {
+          var group = document.getElementById(btn.getAttribute('data-restart'));
+          if (!group) return;
+          Array.prototype.forEach.call(group.querySelectorAll('video'), function (v) {
+            v.currentTime = 0; var p = v.play(); if (p && p.catch) p.catch(function () {});
+          });
+        });
+      });
+
+      /* BibTeX copy */
+      var copy = document.getElementById('copy-bib');
+      var bib = document.getElementById('bib');
+      if (copy && bib) {
+        copy.addEventListener('click', function () {
+          var text = bib.innerText.trim();
+          function done(label) { copy.textContent = label; setTimeout(function () { copy.textContent = 'Copy'; }, 1400); }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () { done('Copied'); }, function () { done('Select and copy'); });
+          } else { done('Select and copy'); }
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
